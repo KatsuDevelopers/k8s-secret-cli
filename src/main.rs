@@ -1,3 +1,4 @@
+use std::time::SystemTime;
 use clap::Parser;
 use k8s_openapi::api::core::v1::{
     Secret, Namespace
@@ -33,7 +34,6 @@ struct Args {
 }
 //
 fn check_namespace(namespace_name: &String, namespace_list: Vec<String>) -> Option<String> {
-    // let matchers = SkimMatcherV2::default();
     return namespace_list
         .iter()
         .cloned()
@@ -51,11 +51,11 @@ async fn get_specified_namespace(client: Client, namespace_name: String) -> Resu
     let spicified_namespace: String;
     let namespaces = get_namespace(client).await.expect("Error getting all namespaces");
     let checked_namespace = check_namespace(&namespace_name, namespaces.clone());
+    println!("{:?}, check namespace", checked_namespace);
     if namespace_name == "" {
         return Ok(Select::new("Select a namespace", namespaces).prompt().expect("error selecting namespace"));
     }
-    if Some(checked_namespace).is_some() {
-
+    if checked_namespace.is_some() {
         return Ok(namespace_name)
     } else {
         // give them multi choice
@@ -66,15 +66,18 @@ async fn get_specified_namespace(client: Client, namespace_name: String) -> Resu
 }
 
 async fn get_specified_secret(client: Client, secret_name: String, specified_namespace: String) -> Result<Secret, Box<dyn std::error::Error>> {
+    let timenow = SystemTime::now();
     let secrets: Api<Secret> = Api::namespaced(client, specified_namespace.as_str());
+    let end = SystemTime::now();
+    let duration = end.duration_since(timenow).unwrap();
+    println!("it took {} seconds get unfiltered secrets", duration.as_secs());
     let matcher = SkimMatcherV2::default();
     let secret_col = secrets.list(&ListParams::default())
         .await
         .expect("Error Retrieving list of secrets");
-    let secret_name_col = secrets.list(&ListParams::default())
-        .await
-        .expect("Error Retrieving list of secrets")
+    let secret_name_col = secret_col
         .iter()
+        .cloned()
         .map(|s| s.metadata.name.clone().unwrap()).collect::<Vec<String>>();
 
     if secret_name_col.contains(&secret_name) {
@@ -125,12 +128,24 @@ fn choose_show_secret(secret: Secret) {
 #[tokio::main]
 async fn main() {
     let args = Args::parse();
+    let timenow = SystemTime::now();
     let kube_client = Client::try_default().await.expect("Error getting kube client");
+    let end = SystemTime::now();
+    let duration = end.duration_since(timenow).unwrap();
+    println!("it took {} seconds for kube client", duration.as_secs());
     if args.name  != "" && args.namespace == "" {
+        let timenow = SystemTime::now();
         let secret = get_specified_secret(kube_client.clone(), args.name.clone(), String::from("default")).await.expect("Error Selecting Secret");
+        let end = SystemTime::now();
+        let duration = end.duration_since(timenow).unwrap();
+        println!("it took {} seconds get specific secrets", duration.as_secs());
         choose_show_secret(secret)
     } else {
+        let timenow = SystemTime::now();
         let specified_namespace = get_specified_namespace(kube_client.clone(), args.namespace).await.expect("error getting specified namespace");
+        let end = SystemTime::now();
+        let duration = end.duration_since(timenow).unwrap();
+        println!("it took {} seconds get specific namespace", duration.as_secs());
         let secret = get_specified_secret(kube_client.clone(), args.name, specified_namespace).await.expect("Error Selecting Secret");
         choose_show_secret(secret)
     } 
